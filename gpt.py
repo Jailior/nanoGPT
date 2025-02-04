@@ -93,7 +93,36 @@ class MultiHeadAttention(nn.Module):
     self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
 
   def forward(self, x):
-    return torch.cat([h(x) for h in self.heads], dim=1)
+    return torch.cat([h(x) for h in self.heads], dim=-1)
+  
+
+class FeedForward(nn.Module):
+  """a simple linear layer followed by a ReLU"""
+
+  def __init__(self, n_embd):
+    super().__init__()
+    self.net =  nn.Sequential(
+      nn.Linear(n_embd, n_embd),
+      nn.ReLU()
+    )
+
+  def forward(self, x):
+    return self.net(x)
+  
+
+class TransformerBlock(nn.Module):
+  """ A transformer block from Attention Is All You Need"""
+
+  def __init__(self, n_embd, n_heads):
+    super().__init__()
+    head_size = n_embd // n_embd
+    self.sa_heads = MultiHeadAttention(n_heads, head_size)
+    self.ffwd = FeedForward(n_embd)
+  
+  def forward(self, x):
+    x = self.sa_heads(x)
+    x = self.ffwd(x)
+    return x
 
 
 class GPTLanguageModel(nn.Module):
@@ -102,8 +131,13 @@ class GPTLanguageModel(nn.Module):
     super().__init__()
     self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
     self.position_embedding_table = nn.Embedding(block_size, n_embd)
-    self.sa_heads = MultiHeadAttention(4, n_embd//4)
-    self.lm_head = nn.Linear(n_embd, vocab_size, bias=False)
+    self.blocks = nn.Sequential(
+      TransformerBlock(n_embd, 4),
+      TransformerBlock(n_embd, 4),
+      TransformerBlock(n_embd, 4),
+      TransformerBlock(n_embd, 4)
+    )
+    self.lm_head = nn.Linear(n_embd, vocab_size)
 
   def forward(self, idx, targets=None):
     B, T = idx.shape
@@ -111,7 +145,7 @@ class GPTLanguageModel(nn.Module):
     token_embeds = self.token_embedding_table(idx) # (B,T,C) batch size, context length, n_embd
     pos_embeds = self.position_embedding_table(torch.arange(T, device=device)) # (T, C)
     x = token_embeds + pos_embeds
-    x = self.sa_head(x)
+    x = self.blocks(x)
     logits = self.lm_head(x) # (B, T, vocab_size)
     
     if targets is None:
@@ -123,7 +157,7 @@ class GPTLanguageModel(nn.Module):
       loss = F.cross_entropy(logits, targets)
     return logits, loss
 
-  def generate(self, idx, max_new_tokens):
+  def generate(self, idx, max_new_tokens):  
     for _ in range(max_new_tokens):
       idx_cond = idx[:, -block_size:]
       logits, loss = self(idx_cond)
