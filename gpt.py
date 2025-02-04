@@ -2,6 +2,14 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# -------
+# Model architecture based on Attention is All You Need
+# Deviations:
+# - layer norm is applied before transformations in accordance to more
+# modern GPTs
+# ------
+
+
 # hyperparameters
 batch_size = 32
 block_size = 8
@@ -91,9 +99,12 @@ class MultiHeadAttention(nn.Module):
   def __init__(self, num_heads, head_size):
     super().__init__()
     self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+    self.proj = nn.Linear(n_embd, n_embd)
 
   def forward(self, x):
-    return torch.cat([h(x) for h in self.heads], dim=-1)
+    out  = torch.cat([h(x) for h in self.heads], dim=-1)
+    out = self.proj(out)
+    return out
   
 
 class FeedForward(nn.Module):
@@ -102,8 +113,9 @@ class FeedForward(nn.Module):
   def __init__(self, n_embd):
     super().__init__()
     self.net =  nn.Sequential(
-      nn.Linear(n_embd, n_embd),
-      nn.ReLU()
+      nn.Linear(n_embd, 4 * n_embd),
+      nn.ReLU(),
+      nn.Linear(4 * n_embd, n_embd)
     )
 
   def forward(self, x):
@@ -115,13 +127,17 @@ class TransformerBlock(nn.Module):
 
   def __init__(self, n_embd, n_heads):
     super().__init__()
-    head_size = n_embd // n_embd
+    head_size = n_embd // n_heads
     self.sa_heads = MultiHeadAttention(n_heads, head_size)
     self.ffwd = FeedForward(n_embd)
+    self.ln1 = nn.LayerNorm(n_embd)
+    self.ln2 = nn.LayerNorm(n_embd)
   
   def forward(self, x):
-    x = self.sa_heads(x)
-    x = self.ffwd(x)
+    x = self.ln1(x)
+    x = x + self.sa_heads(x)
+    x = self.ln2(x)
+    x = x + self.ffwd(x)
     return x
 
 
@@ -190,3 +206,6 @@ for epoch in range(epochs):
   optimizer.zero_grad(set_to_none=True)
   loss.backward()
   optimizer.step()
+
+# generate from model
+print(decode(m.generate(idx=torch.zeros((1,1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
