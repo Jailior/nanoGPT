@@ -3,12 +3,15 @@ import torch.nn as nn
 from torch.nn import functional as F
 from pathlib import Path
 
-# -------
+# -----------------
 # Model architecture based on Attention is All You Need
-# Deviations:
+#
+# Notes:
 # - layer norm is applied before transformations in accordance to more
-# modern GPTs
-# ------
+#   modern GPTs
+# - transformer is a decoder block only, focusing on text generaton rather
+#   than translation.
+# ------------------
 
 
 # hyperparameters
@@ -213,6 +216,7 @@ for epoch in range(epochs):
   loss.backward()
   optimizer.step()
 
+# saving model parameters to file
 MODEL_PATH = Path("models")
 MODEL_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -222,5 +226,5 @@ MODEL_SAVE_PATH = MODEL_PATH / MODEL_NAME
 torch.save(obj=model.state_dict(), f=MODEL_SAVE_PATH)
 
 # generate from model
-output = decode(m.generate(idx=torch.zeros((1,1), dtype=torch.long, device=device), max_new_tokens=10000)[0].tolist())
+output = decode(m.generate(idx=torch.zeros((1,1), dtype=torch.long, device=device), max_new_tokens=1000)[0].tolist())
 open('sample.txt', 'w').write(output)
