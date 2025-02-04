@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from pathlib import Path
 
 # -------
 # Model architecture based on Attention is All You Need
@@ -11,14 +12,17 @@ from torch.nn import functional as F
 
 
 # hyperparameters
-batch_size = 32
-block_size = 8
+batch_size = 64
+block_size = 256
 epochs = 5000
 eval_interval = 500 
-learning_rate = 1e-3
+learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 32
+n_embd = 384
+n_head = 6
+n_layer = 6
+dropout = 0.2
 # ---------------
 
 torch.manual_seed(1337)
@@ -80,6 +84,8 @@ class Head(nn.Module):
     self.value = nn.Linear(n_embd, head_size, bias=False)
     self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
+    self.dropout = nn.Dropout(dropout)
+
   def forward(self, x):
     B,T,C = x.shape
     k = self.key(x) # (B, T, head_size)
@@ -88,6 +94,7 @@ class Head(nn.Module):
     wei = q @ k.transpose(-2,-1) * C**-0.5 # (B,T,C) @ (B,C,T) ==> (B,T,T)
     wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
     wei = F.softmax(wei, dim=-1)
+    wei = self.dropout(wei)
     # weighted aggregation
     v = self.value(x)
     out = wei @ v
@@ -100,10 +107,11 @@ class MultiHeadAttention(nn.Module):
     super().__init__()
     self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
     self.proj = nn.Linear(n_embd, n_embd)
+    self.dropout = nn.Dropout(dropout)
 
   def forward(self, x):
     out  = torch.cat([h(x) for h in self.heads], dim=-1)
-    out = self.proj(out)
+    out = self.dropout(self.proj(out))
     return out
   
 
@@ -115,7 +123,8 @@ class FeedForward(nn.Module):
     self.net =  nn.Sequential(
       nn.Linear(n_embd, 4 * n_embd),
       nn.ReLU(),
-      nn.Linear(4 * n_embd, n_embd)
+      nn.Linear(4 * n_embd, n_embd),
+      nn.Dropout(dropout)
     )
 
   def forward(self, x):
@@ -147,12 +156,8 @@ class GPTLanguageModel(nn.Module):
     super().__init__()
     self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
     self.position_embedding_table = nn.Embedding(block_size, n_embd)
-    self.blocks = nn.Sequential(
-      TransformerBlock(n_embd, 4),
-      TransformerBlock(n_embd, 4),
-      TransformerBlock(n_embd, 4),
-      TransformerBlock(n_embd, 4)
-    )
+    self.blocks = nn.Sequential(*[TransformerBlock(n_embd, n_head) for _ in range(n_layer)])
+    self.ln = nn.LayerNorm(n_embd)
     self.lm_head = nn.Linear(n_embd, vocab_size)
 
   def forward(self, idx, targets=None):
@@ -162,6 +167,7 @@ class GPTLanguageModel(nn.Module):
     pos_embeds = self.position_embedding_table(torch.arange(T, device=device)) # (T, C)
     x = token_embeds + pos_embeds
     x = self.blocks(x)
+    x = self.ln(x)
     logits = self.lm_head(x) # (B, T, vocab_size)
     
     if targets is None:
@@ -207,5 +213,14 @@ for epoch in range(epochs):
   loss.backward()
   optimizer.step()
 
+MODEL_PATH = Path("models")
+MODEL_PATH.mkdir(parents=True, exist_ok=True)
+
+MODEL_NAME = "gpt_model.pth"
+MODEL_SAVE_PATH = MODEL_PATH / MODEL_NAME
+
+torch.save(obj=model.state_dict(), f=MODEL_SAVE_PATH)
+
 # generate from model
-print(decode(m.generate(idx=torch.zeros((1,1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
+output = decode(m.generate(idx=torch.zeros((1,1), dtype=torch.long, device=device), max_new_tokens=10000)[0].tolist())
+open('sample.txt', 'w').write(output)
