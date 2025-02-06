@@ -3,7 +3,7 @@ A simple GPT model based on the Attention Is All You Need paper
 
 ## About
 nanoGPT is a small scale generative pre-trained transformer model, with ~11M parameters, trained on the *Tiny Shakespeare* dataset
-based on the transformer shown in the 2017 paper, Attention Is All You Need. This model focuses on the generation of Shakespeare-like text 
+based on the transformer shown in the 2017 paper, [Attention Is All You Need](https://arxiv.org/abs/1706.03762). This model focuses on the generation of Shakespeare-like text 
 based on no inputs.
 
 The model is able to reach a 1.4956 test loss after 15 minutes of training. With
